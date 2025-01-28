@@ -3,7 +3,7 @@ import os
 from langchain_openai import ChatOpenAI
 from langchain.agents import create_react_agent, AgentExecutor
 from langchain.prompts import PromptTemplate
-from tools import ArbitrumTransactionTool
+from tools import ArbitrumTransactionTool, CryptoPriceTool
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -19,7 +19,7 @@ os.environ["INFURA_PROJECT_ID"] = os.getenv("INFURA_PROJECT_ID")
 
 
 llm = ChatOpenAI(model="gpt-3.5-turbo")
-tools = [ArbitrumTransactionTool()]
+tools = [ArbitrumTransactionTool(), CryptoPriceTool()]
 
 prompt = PromptTemplate.from_template("""
     Answer the following questions as best you can. You have access to the following tools:
@@ -34,8 +34,11 @@ Action: the action to take, should be one of [{tool_names}] / if the question is
 Action Input: the input to the action should be a json string with only the required parameters
 Observation: the result of the action
 ... (this Thought/Action/Action Input/Observation can repeat N times)
-Thought: I now know the final answer
-Final Answer: the final answer to the original input question
+Thought: Process the tool's output and explain it in a user-friendly way
+Final Answer: Give a complete, well-formatted response that explains what happened in simple terms
+
+If you receive JSON data or technical output from a tool, process it and explain it in plain English.
+Make your final answer conversational and easy to understand.
 
 Begin!
 
@@ -50,9 +53,10 @@ agent_executor = AgentExecutor(
     verbose=True,
     max_iterations=3,
     handle_parsing_errors=True,  # Add this line
+    return_intermediate_steps=True 
 )
 
-query = "Can you send 0.001 ETH to 0xDF2b85e90F4Aa7bDC724dE4aF08B45cDc7458593"
+query = "What is price of bitcoin ?"
 # query = "Hey how are you, write a short story"
 response = agent_executor.invoke({"input": query})
 

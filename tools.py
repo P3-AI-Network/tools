@@ -17,9 +17,13 @@ class CryptoPriceTool(BaseTool):
     name: str = "get_crypto_price"
     description: str = "Fetches the current USD price of a cryptocurrency by its symbol from Coinmarketcap"   
     args_schema: Type[BaseModel] = CryptoPriceToolInput
-    return_direct: bool = True
+    return_direct: bool = False
 
-    def _run(self,symbol: str) -> int:
+    def _run(self, *args, **kwargs) -> int:
+
+        symbol: str = kwargs.get('symbol')
+        if not symbol:
+            return -2
 
         base_url = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest"
         headers = {
@@ -36,16 +40,27 @@ class CryptoPriceTool(BaseTool):
             response.raise_for_status()
             data = response.json()
 
-            print(data)
+            return data
 
 
-        except: 
+        except Exception as e:
+            print(e) 
             return -1
 
 
     async def _arun(self, symbol: str) -> str:
         """Async version of the price fetcher (optional)."""
         raise NotImplementedError("Async support is not implemented for this tool.")
+    
+    def _parse_input(self, tool_input: Union[str, dict], tool_call_id: Optional[str] = None) -> dict:
+        """Parse the tool input."""
+        if isinstance(tool_input, str):
+            try:
+                parsed_input = json.loads(tool_input)
+                return parsed_input
+            except json.JSONDecodeError:
+                return {"symbol": tool_input}
+        return tool_input
     
 
 
@@ -59,7 +74,7 @@ class CryptoLatestNewsTool(BaseTool):
     description: str = "Fetch Latest articles and news in crypto industry"
 
 
-    def _run(self, tool_input=None) -> str: 
+    def _run(self, **kwargs) -> str: 
 
         # Fetch latest artiels from coin market cap 
         base_url = "https://pro-api.coinmarketcap.com/v1/content/latest"
