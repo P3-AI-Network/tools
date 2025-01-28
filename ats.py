@@ -64,8 +64,7 @@ for page in pdf_reader.pages:
 
 if feedback_button:
     result = chain.run(job_description=job_description,resume=pdf_text)
-    st.write(result)
-
+    st.write(result) 
 
 
 if percentage_button:
@@ -73,3 +72,5 @@ if percentage_button:
     st.write(result)
 
 
+
+ 
