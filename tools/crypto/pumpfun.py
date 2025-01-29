@@ -1,9 +1,16 @@
-from langchain.tools import BaseTool
 import os
+import json
+import base58
+import struct 
+import hashlib
+
+from langchain.tools import BaseTool
 from pydantic import BaseModel, Field
 from typing import Optional, Type, Union
-import json
+
 from solana.rpc.api import Client
+from solana.rpc.commitment import Commitment
+
 from solders.instruction import Instruction, AccountMeta
 from solders.pubkey import Pubkey
 from solders.transaction import Transaction
@@ -11,12 +18,35 @@ from solders.message import Message
 from solders.keypair import Keypair
 
 
+GLOBAL = Pubkey.from_string("4wTV1YmiEkRvAtNtsSGPtUrqRYQMe5SKy2uB4Jjaxnjf")
+SYSTEM_PROGRAM = Pubkey.from_string("11111111111111111111111111111111")
+RENT = Pubkey.from_string("SysvarRent111111111111111111111111111111111")
+PUMP_FUN_PROGRAM = Pubkey.from_string("6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P")
+PUMP_FUN_ACCOUNT = Pubkey.from_string("Ce6TQqeHC9p8KetsN6JsjHK7UTZk7nasjjnr7XxXp9F1")
+MPL_TOKEN_METADATA = Pubkey.from_string("metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s")
+MINT_AUTHORITY = Pubkey.from_string("TSLvdd1pWpHVjahSpsvCXUbgwsL3JAcvokwaKt1eokM")
+COMPUTE_BUDGET_PROGRAM_ID = Pubkey.from_string("ComputeBudget111111111111111111111111111111")
+TOKEN_PROGRAM_ID = Pubkey.from_string("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA")
+ASSOCIATED_TOKEN_PROGRAM_ID = Pubkey.from_string("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL")
+
+
+def buffer_from_string(value: str) -> bytes:
+    return len(value).to_bytes(4, 'little') + value.encode()
+
+
+
+class PumpFunToolInput(BaseModel):
+    name: str = Field(description="Token name eg: TONfortcoin")
+    symbol: str = Field(description="Token Symbol in letters eg: TN, BTX, PJT, WIFFTX")
+    uri: str = Field(description="Token website url or uri eg: https://tonfortcoin.com")
+
+
 class PumpFunTool(BaseTool):
     
     name: str = "pump_fun_create_token"
     description: str = """Create Token on Pump fun platform on solana"""
-    # args_schema: Type[BaseModel] = ArbitrumTransactionToolInput
-    # return_direct: bool = True
+    args_schema: Type[BaseModel] = PumpFunToolInput
+    return_direct: bool = False
 
     def load_secret_key(self) -> Keypair:
 
@@ -31,32 +61,97 @@ class PumpFunTool(BaseTool):
 
     def _run(self, **kwargs) -> str:
 
-
         try:
 
-            private_key: str = os.environ["WEB3_PRIVATE_KEY"]
-            address: str = os.environ["WEB3_WALLET_ADDRESS"]
-            infura_project_id: str = os.environ["INFURA_PROJECT_ID"]
-            infura_url = "https://arbitrum-sepolia.infura.io/v3/" + infura_project_id
+            token_name = kwargs.get("name")
+            token_symbol = kwargs.get("symbol")
+            token_uri = kwargs.get("uri")
+
+            mint_keypair = Keypair()
+            print(f"Mint Address: {mint_keypair.pubkey().__str__()}")
 
             client = Client("https://api.mainnet-beta.solana.com")
-            keypair = self.load_secret_key()
+            user_account_keypair = self.load_secret_key()
 
-            account_metas = [
-                AccountMeta(
-                    pubkey=keypair.pubkey().__str__(),
-                    is_signer=True,
-                    is_writable=False
-                )
+            bonding_curve, _ = Pubkey.find_program_address(
+                [b"bonding-curve", bytes(mint_keypair.pubkey())],
+                PUMP_FUN_PROGRAM
+            )
+
+
+            associated_bonding_curve, _ = Pubkey.find_program_address(
+                [
+                    bytes(bonding_curve),
+                    bytes(TOKEN_PROGRAM_ID),
+                    bytes(mint_keypair.pubkey())
+                ],
+                ASSOCIATED_TOKEN_PROGRAM_ID
+            )
+
+            metadata, _ = Pubkey.find_program_address(
+                [
+                    b"metadata",
+                    bytes(MPL_TOKEN_METADATA),
+                    bytes(mint_keypair.pubkey())
+                ],
+                MPL_TOKEN_METADATA
+            )
+
+            compute_budget_instruction = Instruction(
+                program_id=COMPUTE_BUDGET_PROGRAM_ID,
+                accounts=[],
+                data=bytes([3]) + (100000).to_bytes(8, 'little')
+            )
+
+            instruction_data = (
+                bytes.fromhex("181ec828051c0777") +
+                buffer_from_string(token_name) +
+                buffer_from_string(token_symbol) +
+                buffer_from_string(token_uri)
+            )
+
+            # Create accounts list
+            accounts = [
+                AccountMeta(mint_keypair.pubkey(), True, True),
+                AccountMeta(MINT_AUTHORITY, False, False),
+                AccountMeta(bonding_curve, False, True),
+                AccountMeta(associated_bonding_curve, False, True),
+                AccountMeta(GLOBAL, False, False),
+                AccountMeta(MPL_TOKEN_METADATA, False, False),
+                AccountMeta(metadata, False, True),
+                AccountMeta(user_account_keypair.pubkey(), True, True),
+                AccountMeta(SYSTEM_PROGRAM, False, False),
+                AccountMeta(TOKEN_PROGRAM_ID, False, False),
+                AccountMeta(ASSOCIATED_TOKEN_PROGRAM_ID, False, False),
+                AccountMeta(RENT, False, False),
+                AccountMeta(PUMP_FUN_ACCOUNT, False, False),
+                AccountMeta(PUMP_FUN_PROGRAM, False, False)
             ]
 
 
-            recent_blockhash = client.get_latest_blockhash().value.blockhash
-            message = Message.new_with_blockhash(
-                [],
-                keypair.pubkey().__str__(),
 
+            instruction = Instruction(
+                program_id=PUMP_FUN_PROGRAM,
+                accounts=accounts,
+                data=instruction_data
             )
+
+            recent_blockhash = client.get_latest_blockhash("finalized").value.blockhash
+
+
+            message = Message.new_with_blockhash(
+                [compute_budget_instruction,instruction],
+                user_account_keypair.pubkey(),
+                recent_blockhash
+            )
+
+            transaction = Transaction.new_unsigned(message)
+            transaction.sign([user_account_keypair, mint_keypair], recent_blockhash=recent_blockhash)
+
+
+
+            result = client.send_transaction(transaction)
+            return f"Token created with address {mint_keypair.pubkey().__str__()} give this address back to user in return prompt"
 
         
         except Exception as e:
@@ -79,12 +174,12 @@ class PumpFunTool(BaseTool):
 if __name__ == "__main__":
 
     from dotenv import load_dotenv
-    from bs4 import BeautifulSoup
         
     load_dotenv()
 
-    os.environ["COIN_MARKET_CAP_API"] = os.getenv("COIN_MARKET_CAP_API")
-    os.environ["WEB3_PRIVATE_KEY"] = os.getenv("WEB3_PRIVATE_KEY")
-    os.environ["WEB3_WALLET_ADDRESS"] = os.getenv("WEB3_WALLET_ADDRESS")
-    os.environ["INFURA_PROJECT_ID"] = os.getenv("INFURA_PROJECT_ID")
-
+    tool = PumpFunTool()
+    tool.invoke({
+        "name":"hel",
+        "symbol": "JJasflkjdfas",
+        "uri": "https://google.com"
+    })

@@ -3,8 +3,11 @@ import os
 from langchain_openai import ChatOpenAI
 from langchain.agents import create_react_agent, AgentExecutor
 from langchain.prompts import PromptTemplate
-from agent import ArbitrumTransactionTool, CryptoPriceTool
-# from langchain_ollama.chat_models import ChatOllama
+from tools.crypto.arbitrum import ArbitrumTransactionTool
+from tools.crypto.coinmarketcap import CryptoPriceTool
+from tools.crypto.pumpfun import PumpFunTool
+
+from langchain_ollama.chat_models import ChatOllama
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -19,10 +22,10 @@ os.environ["WEB3_WALLET_ADDRESS"] = os.getenv("WEB3_WALLET_ADDRESS")
 os.environ["INFURA_PROJECT_ID"] = os.getenv("INFURA_PROJECT_ID")
 
 
-# llm = ChatOllama(model="deepseek-r1:7b")
+# llm = ChatOllama(model="llama2:latest")
 llm = ChatOpenAI(model="gpt-3.5-turbo")
 
-tools = [ArbitrumTransactionTool(), CryptoPriceTool()]
+tools = [ArbitrumTransactionTool(), CryptoPriceTool(), PumpFunTool()]
 
 prompt = PromptTemplate.from_template("""
     Answer the following questions as best you can. You have access to the following tools:
@@ -58,10 +61,7 @@ agent_executor = AgentExecutor(
     handle_parsing_errors=True,  # Add this line
 )
 
-# query = "What is price of bitcoin ?"
-query = "Send 0.001 Eth to this address 0xd5148b96d3F6F3234721C72EC8a57a4B07A45ca7"
-
-# query = "Hey how are you, write a short story"
-response = agent_executor.invoke({"input": query})
-
-print(response)
+while True: 
+    query = str(input("Prompt: "))
+    response = agent_executor.invoke({"input": query})
+    print(response)
